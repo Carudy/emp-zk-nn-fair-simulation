@@ -13,10 +13,7 @@ using namespace std;
 static constexpr int       F     = 10;
 static constexpr int       THREADS = 1;
 static constexpr long long SCALE = 1LL << 20;   // fixed-point scale
-// `pr` (emp-zk's 2^61-1) is already in scope from emp-zk headers.
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Plain field helpers  (mod pr = 2^61-1)
 // ─────────────────────────────────────────────────────────────────────────────
 static uint64_t fp_add_(uint64_t a, uint64_t b) {
     return (uint64_t)((unsigned __int128)(a + b) % pr);
@@ -35,8 +32,6 @@ static uint64_t fp_from_double(double x) {
     return (uint64_t)(((v % (long long)pr) + (long long)pr) % (long long)pr);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Power iteration – dominant singular pair (σ, u, v)
 // ─────────────────────────────────────────────────────────────────────────────
 struct SingularPair { double sigma; vector<double> u, v; };
 
@@ -68,13 +63,6 @@ static SingularPair power_iter(const vector<vector<double>>& W,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ZK proof that a committed wire-vector is a fixed-point unit vector.
-//
-// Strategy (matching official test pattern):
-//   Build one wire:  diff = Σᵢ w[i]² - SCALE²
-//   Then batch_reveal_check({diff}, {0}, 1)
-//   → the verifier checks that diff decodes to 0.
-// ─────────────────────────────────────────────────────────────────────────────
 static void zk_assert_unit(const vector<IntFp>& w, const char* label)
 {
     // Accumulate sum of squares
@@ -95,8 +83,50 @@ static void zk_assert_unit(const vector<IntFp>& w, const char* label)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-int main(int argc, char** argv)
-{
+// ────────────────────── Party Process─────────────────────────────────────────
+void prover_work(NetIO* raw_io, vector<uint64_t>& lambda_u, vector<uint64_t>& lambda_v,
+                 vector<uint64_t>& du, vector<uint64_t>& dv) {
+    // Toy deterministic matrix
+    vector<vector<double>> W(F, vector<double>(F));
+    for (int i = 0; i < F; ++i)
+        for (int j = 0; j < F; ++j)
+            W[i][j] = ((i * F + j) % 7) - 3.0;
+
+    SingularPair sv = power_iter(W);
+    cout << "[P] calced ||W||2, u, and v "\n";
+
+    vector<uint64_t> u_fp(F), v_fp(F);
+    for (int i = 0; i < F; ++i) {
+        u_fp[i] = fp_from_double(sv.u[i]);
+        v_fp[i] = fp_from_double(sv.v[i]);
+    }
+
+    PRG prg;
+    prg.random_data(lambda_u.data(), F * sizeof(uint64_t));
+    prg.random_data(lambda_v.data(), F * sizeof(uint64_t));
+    for (int i = 0; i < F; ++i) {
+        lambda_u[i] %= pr;
+        lambda_v[i] %= pr;
+        du[i] = fp_sub_(u_fp[i], lambda_u[i]);
+        dv[i] = fp_sub_(v_fp[i], lambda_v[i]);
+    }
+    raw_io->send_data(du.data(), F * sizeof(uint64_t));
+    raw_io->send_data(dv.data(), F * sizeof(uint64_t));
+    raw_io->flush();
+    cout << "[P] Sent du, dv.\n";
+}
+
+
+void verifier_work(NetIO* raw_io, vector<uint64_t>& du, vector<uint64_t>& dv) {
+    raw_io->recv_data(du.data(), F * sizeof(uint64_t));
+    raw_io->recv_data(dv.data(), F * sizeof(uint64_t));
+    cout << "[V] Received du, dv.\n";
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────── main ────────────────────────────────────────────
+int main(int argc, char** argv) {
     int party, port;
     parse_party_and_port(argv, &party, &port);
 
@@ -122,38 +152,9 @@ int main(int argc, char** argv)
     vector<uint64_t> du(F, 0),       dv(F, 0);
 
     if (party == ALICE) {
-        // Toy deterministic matrix (replace with any private W)
-        vector<vector<double>> W(F, vector<double>(F));
-        for (int i = 0; i < F; ++i)
-            for (int j = 0; j < F; ++j)
-                W[i][j] = ((i * F + j) % 7) - 3.0;
-
-        SingularPair sv = power_iter(W);
-        cout << "[P] σ₁(W) ≈ " << sv.sigma << "\n";
-
-        vector<uint64_t> u_fp(F), v_fp(F);
-        for (int i = 0; i < F; ++i) {
-            u_fp[i] = fp_from_double(sv.u[i]);
-            v_fp[i] = fp_from_double(sv.v[i]);
-        }
-
-        PRG prg;
-        prg.random_data(lambda_u.data(), F * sizeof(uint64_t));
-        prg.random_data(lambda_v.data(), F * sizeof(uint64_t));
-        for (int i = 0; i < F; ++i) {
-            lambda_u[i] %= pr;
-            lambda_v[i] %= pr;
-            du[i] = fp_sub_(u_fp[i], lambda_u[i]);
-            dv[i] = fp_sub_(v_fp[i], lambda_v[i]);
-        }
-        raw_io->send_data(du.data(), F * sizeof(uint64_t));
-        raw_io->send_data(dv.data(), F * sizeof(uint64_t));
-        raw_io->flush();
-        cout << "[P] Sent du, dv.\n";
+        prover_work(raw_io, lambda_u, lambda_v, du, dv);
     } else {
-        raw_io->recv_data(du.data(), F * sizeof(uint64_t));
-        raw_io->recv_data(dv.data(), F * sizeof(uint64_t));
-        cout << "[V] Received du, dv.\n";
+        verifier_work(raw_io, du, dv);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
