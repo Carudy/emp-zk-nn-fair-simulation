@@ -24,8 +24,8 @@ echo "Starting verifier (party 2) in background..."
 VERIFIER_PID=$!
 
 echo "Verifier PID: $VERIFIER_PID"
-echo "Waiting 2 seconds for verifier to initialize..."
-sleep 2
+echo "Waiting 1 seconds for verifier to initialize..."
+sleep 1
 
 echo ""
 echo "Starting prover (party 1)..."
