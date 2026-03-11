@@ -2,6 +2,7 @@
 
 set -e
 
+DIM_F=10
 PORT=42341
 
 echo "========================================"
@@ -20,7 +21,7 @@ fi
 rm -f prover.log verifier.log
 
 echo "Starting verifier (party 2) in background..."
-./sim.exe 2 $PORT 2>&1 | tee verifier.log &
+./sim.exe 2 $PORT 2>&1 $DIM_F | tee verifier.log &
 VERIFIER_PID=$!
 
 echo "Verifier PID: $VERIFIER_PID"
@@ -29,7 +30,7 @@ sleep 1
 
 echo ""
 echo "Starting prover (party 1)..."
-./sim.exe 1 $PORT 2>&1 | tee prover.log &
+./sim.exe 1 $PORT 2>&1 $DIM_F | tee prover.log &
 PROVER_PID=$!
 
 echo "Prover PID: $PROVER_PID"
