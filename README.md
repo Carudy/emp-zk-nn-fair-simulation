@@ -14,3 +14,13 @@ Note that:
     - finding unit vec in (mod pr) is difficult, so we use random vec
     - calc SVD in (mod pr) is more difficult, so in code we suppose a, u, v are calculated
 - The above suggests that the experiment simulates the whole process of protocol, while not guaranteeing the correctness
+
+### PY Translation
+
+- `main.py` is a python implemented version based on `pico-zk`
+- Usage:
+
+```
+uv run python main.py DIM_F my_circuit_output
+# DIM_F can be 10, 2048, etc.
+```

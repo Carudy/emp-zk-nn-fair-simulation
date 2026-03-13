@@ -1,3 +1,5 @@
 *.exe
 *.log
 .zed
+*_output*
+.venv
